@@ -480,6 +480,6 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
   }
 
   return path_splits;
-}  // namespace routing_algos
+}
 
 }  // namespace routing_algos
