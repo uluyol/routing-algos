@@ -6,6 +6,7 @@
 #include "glog/logging.h"
 
 namespace routing_algos {
+
 namespace {
 
 constexpr bool kDebugB4 = false;
@@ -21,61 +22,88 @@ std::string ToString(absl::Span<const BandwidthFunc::Step> steps) {
                       "]");
 }
 
-}  // namespace
+struct FGState {
+  FGState(FG flowgroup, const BandwidthFunc& fn)
+      : fg(flowgroup),
+        active_steps(fn.Func()),
+        fair_share(0),
+        alloc_bps(0),
+        current_path_capacity(0) {}
 
-void BandwidthFunc::Clear() { func_.clear(); }
+  FG fg;
+  absl::Span<const BandwidthFunc::Step> active_steps;
+  double fair_share;
+  int64_t alloc_bps;
 
-void BandwidthFunc::Push(double fair_share, int64_t bps) {
-  double last_bps = 0;
-  double last_fair_share = 0;
-  if (!func_.empty()) {
-    last_bps = func_.back().bps;
-    last_fair_share = func_.back().fair_share;
+  // Path Allocation
+  //
+  // All path manipulation happens in B4::Solve so that we can avoid counting
+  // paths with zero capacity against the path budget (unless there are no other
+  // options).
+  //
+  // To make this work, we stash the current_path's capacity here in
+  // B4::FreezeFGs.
+  Path current_path;
+  double current_path_capacity;
+  PathSplit path_to_capacity;
+};
 
-    if (kDebugB4) {
-      CHECK(last_bps <= bps && last_fair_share <= fair_share);
-    }
-  }
-  func_.push_back({
-      .fair_share = fair_share,
-      .bps = bps,
-      .bps_per_share = (static_cast<double>(bps) - last_bps) /
-                       (fair_share - last_fair_share),
-  });
-}
+class LinkProblem {
+ public:
+  explicit LinkProblem(LinkId link_id, int64_t capacity_bps);
 
-int64_t BandwidthFunc::DemandBps() const {
-  if (func_.empty()) {
-    return 0;
-  }
-  return func_.back().bps;
-}
+  void Add(FGState* state);
+  void Remove(FG fg, int64_t used_capacity_bps);
 
-const std::vector<BandwidthFunc::Step>& BandwidthFunc::Func() const {
-  return func_;
-}
+  double MaxMinFairShare();
+  void MarkBottleneck();
 
-std::ostream& operator<<(std::ostream& os, const BandwidthFunc& func) {
-  return os << ToString(absl::MakeSpan(func.Func()));
-}
+  int64_t capacity_bps() const;
+  const absl::btree_map<FG, FGState*>& FGStates() const;
+
+ private:
+  double MaxMinFairShareNoCache();
+
+  const LinkId link_id_;
+  double capacity_bps_;
+  bool is_bottleneck_;
+  absl::btree_map<FG, FGState*> fg_states_;
+
+  // State used during allocation when we don't want to manipulate the B4FGState
+  // right away.
+  struct FGLinkState {
+    FG fg;
+    absl::Span<const BandwidthFunc::Step> steps;
+    double fair_share;
+    int64_t alloc_bps;
+  };
+
+  friend std::ostream& operator<<(std::ostream& os, const FGLinkState& state);
+
+  std::vector<FGLinkState> scratch_;
+
+  // cached_fair_share_ contains a cached value for the fair share.
+  // It is invalidated whenever a new FG is added or removed.
+  absl::optional<double> cached_fair_share_;
+};
 
 std::ostream& operator<<(std::ostream& os,
-                         const B4LinkProblem::FGLinkState& state) {
+                         const LinkProblem::FGLinkState& state) {
   return os << "{" << state.fg << " " << ToString(state.steps)
             << " share: " << state.fair_share << " bps: " << state.alloc_bps
             << "}";
 }
 
-B4LinkProblem::B4LinkProblem(LinkId link_id, int64_t capacity_bps)
+LinkProblem::LinkProblem(LinkId link_id, int64_t capacity_bps)
     : link_id_(link_id), capacity_bps_(capacity_bps), is_bottleneck_(false) {}
 
-void B4LinkProblem::Add(internal::B4FGState* state) {
+void LinkProblem::Add(FGState* state) {
   ABSL_ASSERT(!is_bottleneck_);
   cached_fair_share_.reset();
   fg_states_.insert({state->fg, state});
 }
 
-void B4LinkProblem::Remove(FG fg, int64_t used_capacity_bps) {
+void LinkProblem::Remove(FG fg, int64_t used_capacity_bps) {
   ABSL_ASSERT(!is_bottleneck_);
   cached_fair_share_.reset();
   fg_states_.erase(fg);
@@ -83,7 +111,7 @@ void B4LinkProblem::Remove(FG fg, int64_t used_capacity_bps) {
   ABSL_ASSERT(capacity_bps_ >= 0);
 }
 
-double B4LinkProblem::MaxMinFairShare() {
+double LinkProblem::MaxMinFairShare() {
   if (cached_fair_share_) {
     if (kDebugB4) {
       double recomputed = MaxMinFairShareNoCache();
@@ -98,7 +126,7 @@ double B4LinkProblem::MaxMinFairShare() {
   return *cached_fair_share_;
 }
 
-double B4LinkProblem::MaxMinFairShareNoCache() {
+double LinkProblem::MaxMinFairShareNoCache() {
   ABSL_ASSERT(!is_bottleneck_);
 
   std::vector<FGLinkState>& active_states = scratch_;
@@ -106,7 +134,7 @@ double B4LinkProblem::MaxMinFairShareNoCache() {
 
   double min_fair_share = std::numeric_limits<double>::infinity();
   for (auto fg_state_pair : fg_states_) {
-    internal::B4FGState* state = fg_state_pair.second;
+    FGState* state = fg_state_pair.second;
     min_fair_share = std::min(min_fair_share, state->fair_share);
 
     if (!state->active_steps.empty()) {
@@ -200,29 +228,31 @@ double B4LinkProblem::MaxMinFairShareNoCache() {
   return min_fair_share;
 }
 
-void B4LinkProblem::MarkBottleneck() {
+void LinkProblem::MarkBottleneck() {
   ABSL_ASSERT(!is_bottleneck_);
   is_bottleneck_ = true;
 }
 
-int64_t B4LinkProblem::capacity_bps() const { return capacity_bps_; }
+int64_t LinkProblem::capacity_bps() const { return capacity_bps_; }
 
-const absl::btree_map<FG, internal::B4FGState*>& B4LinkProblem::FGStates()
-    const {
+const absl::btree_map<FG, FGState*>& LinkProblem::FGStates() const {
   return fg_states_;
 }
 
-B4::B4(std::unique_ptr<PathProvider> path_provider, Config config)
-    : config_(config), path_provider_(std::move(path_provider)) {}
+struct B4SolverState {
+  std::vector<LinkProblem> link_problems;
+  std::vector<FGState> fg_states;
+  absl::flat_hash_set<LinkId> links_to_avoid;
+};
 
-void B4::FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
-                   std::vector<internal::B4FGState*>& frozen_fgs) {
+void FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
+               std::vector<FGState*>& frozen_fgs, B4SolverState& solver) {
   if (kDebugB4) {
     LOG(INFO) << "B4: freeze all " << frozen_fgs.size()
               << " FGs on bottleneck link";
   }
 
-  B4LinkProblem& problem = link_problems_[bottleneck_link_id];
+  LinkProblem& problem = solver.link_problems[bottleneck_link_id];
 
   frozen_fgs.clear();
   frozen_fgs.reserve(problem.FGStates().size());
@@ -232,7 +262,7 @@ void B4::FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
     frozen_fgs.push_back(fg_state_pair.second);
   }
 
-  for (internal::B4FGState* state : frozen_fgs) {
+  for (FGState* state : frozen_fgs) {
     // First, allocate link bandwidth to FG
     int64_t initial_bps = state->alloc_bps;
     while (!state->active_steps.empty() &&
@@ -258,7 +288,7 @@ void B4::FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
     // Second, subtract added BW from all links on the path
     int64_t added_bps = state->alloc_bps - initial_bps;
     for (LinkId link_id : state->current_path) {
-      link_problems_[link_id].Remove(state->fg, added_bps);
+      solver.link_problems[link_id].Remove(state->fg, added_bps);
     }
 
     // Third, record the path capacity.
@@ -266,42 +296,100 @@ void B4::FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
   }
 }
 
+bool AllLinksSaturated(const B4SolverState& s) {
+  for (LinkId link_id = 0; link_id < s.link_problems.size(); link_id++) {
+    if (!s.links_to_avoid.contains(link_id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool AllDemandsSatisfied(const B4SolverState& s) {
+  for (auto& fg_state : s.fg_states) {
+    if (!fg_state.active_steps.empty()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+void BandwidthFunc::Clear() { func_.clear(); }
+
+void BandwidthFunc::Push(double fair_share, int64_t bps) {
+  double last_bps = 0;
+  double last_fair_share = 0;
+  if (!func_.empty()) {
+    last_bps = func_.back().bps;
+    last_fair_share = func_.back().fair_share;
+
+    if (kDebugB4) {
+      CHECK(last_bps <= bps && last_fair_share <= fair_share);
+    }
+  }
+  func_.push_back({
+      .fair_share = fair_share,
+      .bps = bps,
+      .bps_per_share = (static_cast<double>(bps) - last_bps) /
+                       (fair_share - last_fair_share),
+  });
+}
+
+int64_t BandwidthFunc::DemandBps() const {
+  if (func_.empty()) {
+    return 0;
+  }
+  return func_.back().bps;
+}
+
+const std::vector<BandwidthFunc::Step>& BandwidthFunc::Func() const {
+  return func_;
+}
+
+std::ostream& operator<<(std::ostream& os, const BandwidthFunc& func) {
+  return os << ToString(absl::MakeSpan(func.Func()));
+}
+
+B4::B4(std::unique_ptr<PathProvider> path_provider, Config config)
+    : config_(config), path_provider_(std::move(path_provider)) {}
+
 PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
                            std::vector<Link>& links) {
-  links_to_avoid_.clear();
+  B4SolverState solver;
 
-  link_problems_.clear();
-  link_problems_.reserve(links.size());
+  solver.link_problems.reserve(links.size());
   for (LinkId id = 0; id < links.size(); id++) {
-    link_problems_.push_back(B4LinkProblem(id, links[id].capacity_bps));
+    solver.link_problems.push_back(LinkProblem(id, links[id].capacity_bps));
   }
 
-  fg_states_.clear();
-  fg_states_.reserve(bandwidth_funcs.size());
+  solver.fg_states.clear();
+  solver.fg_states.reserve(bandwidth_funcs.size());
   for (auto& p : bandwidth_funcs) {
-    fg_states_.push_back(internal::B4FGState(p.first, p.second));
-    auto state = &fg_states_.back();
+    solver.fg_states.push_back(FGState(p.first, p.second));
+    auto state = &solver.fg_states.back();
 
     state->current_path =
-        path_provider_->NextBestPath(state->fg, links_to_avoid_);
+        path_provider_->NextBestPath(state->fg, solver.links_to_avoid);
 
     for (LinkId link_id : state->current_path) {
-      link_problems_[link_id].Add(state);
+      solver.link_problems[link_id].Add(state);
     }
   }
 
-  std::vector<internal::B4FGState*> frozen_fgs;
+  std::vector<FGState*> frozen_fgs;
 
-  while (!AllLinksSaturated() && !AllDemandsSatisfied()) {
+  while (!AllLinksSaturated(solver) && !AllDemandsSatisfied(solver)) {
     double min_fair_share = std::numeric_limits<double>::infinity();
     LinkId link_id_of_min = 0;
 
-    for (LinkId link_id = 0; link_id < link_problems_.size(); link_id++) {
-      if (links_to_avoid_.contains(link_id)) {
+    for (LinkId link_id = 0; link_id < solver.link_problems.size(); link_id++) {
+      if (solver.links_to_avoid.contains(link_id)) {
         continue;
       }
 
-      double fair_share = link_problems_[link_id].MaxMinFairShare();
+      double fair_share = solver.link_problems[link_id].MaxMinFairShare();
       if (fair_share < min_fair_share) {
         min_fair_share = fair_share;
         link_id_of_min = link_id;
@@ -316,12 +404,12 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
       LOG(INFO) << "B4: Link " << link_id_of_min << " is the bottleneck";
     }
 
-    FreezeFGs(min_fair_share, link_id_of_min, frozen_fgs);
-    links_to_avoid_.insert(link_id_of_min);
-    link_problems_[link_id_of_min].MarkBottleneck();
+    FreezeFGs(min_fair_share, link_id_of_min, frozen_fgs, solver);
+    solver.links_to_avoid.insert(link_id_of_min);
+    solver.link_problems[link_id_of_min].MarkBottleneck();
 
     // Add next-best paths for any frozen FGs
-    for (internal::B4FGState* state : frozen_fgs) {
+    for (FGState* state : frozen_fgs) {
       // FG's demand is zero. Use shortest path allocated.
       if ((state->active_steps.empty() && state->alloc_bps == 0) ||
           (!state->active_steps.empty() &&
@@ -345,7 +433,8 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
       //    -> add it only if no next path exists.
       //
 
-      Path next_path = path_provider_->NextBestPath(state->fg, links_to_avoid_);
+      Path next_path =
+          path_provider_->NextBestPath(state->fg, solver.links_to_avoid);
       bool should_add_current = false;
       if (state->current_path_capacity > 0) {
         // State 1: always add path with capacity
@@ -375,40 +464,22 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
         state->current_path = std::move(next_path);
 
         for (LinkId link_id : state->current_path) {
-          link_problems_[link_id].Add(state);
+          solver.link_problems[link_id].Add(state);
         }
       }
     }
   }
 
   for (LinkId link_id = 0; link_id < links.size(); link_id++) {
-    links[link_id].capacity_bps = link_problems_[link_id].capacity_bps();
+    links[link_id].capacity_bps = solver.link_problems[link_id].capacity_bps();
   }
 
   PerFG<PathSplit> path_splits;
-  for (auto& state : fg_states_) {
+  for (auto& state : solver.fg_states) {
     path_splits[state.fg] = std::move(state.path_to_capacity);
   }
 
   return path_splits;
 }  // namespace routing_algos
-
-bool B4::AllLinksSaturated() const {
-  for (LinkId link_id = 0; link_id < link_problems_.size(); link_id++) {
-    if (!links_to_avoid_.contains(link_id)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool B4::AllDemandsSatisfied() const {
-  for (auto& fg_state : fg_states_) {
-    if (!fg_state.active_steps.empty()) {
-      return false;
-    }
-  }
-  return true;
-}
 
 }  // namespace routing_algos
