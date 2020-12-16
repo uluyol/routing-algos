@@ -1,0 +1,81 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "types",
+    srcs = ["types.cc"],
+    hdrs = ["types.h"],
+    deps = [
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "conversion",
+    srcs = ["conversion.cc"],
+    hdrs = ["conversion.h"],
+    deps = [
+        ":types",
+    ],
+)
+
+cc_library(
+    name = "path_provider",
+    hdrs = ["path_provider.h"],
+    deps = [
+        ":types",
+        "@com_google_absl//absl/container:flat_hash_set",
+    ],
+)
+
+cc_library(
+    name = "b4",
+    srcs = ["b4.cc"],
+    hdrs = ["b4.h"],
+    deps = [
+        ":path_provider",
+        ":types",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@glog",
+    ],
+)
+
+cc_library(
+    name = "spf_path_provider",
+    srcs = ["spf_path_provider.cc"],
+    hdrs = ["spf_path_provider.h"],
+    deps = [
+        ":path_provider",
+        "//third_party/ncode-common",
+    ],
+)
+
+cc_test(
+    name = "spf_path_provider_test",
+    srcs = ["spf_path_provider_test.cc"],
+    deps = [
+        ":spf_path_provider",
+        "@gtest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "b4_test",
+    srcs = ["b4_test.cc"],
+    deps = [
+        ":b4",
+        ":spf_path_provider",
+        "@gtest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "conversion_test",
+    srcs = ["conversion_test.cc"],
+    deps = [
+        ":conversion",
+        "@gtest//:gtest_main",
+    ],
+)
