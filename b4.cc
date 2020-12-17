@@ -9,7 +9,7 @@ namespace routing_algos {
 
 namespace {
 
-constexpr bool kDebugB4 = false;
+constexpr bool kDebugB4 = true;
 
 struct ParenStepFormatter {
   void operator()(std::string* out, const BandwidthFunc::Step& step) {
@@ -22,6 +22,7 @@ std::string ToString(absl::Span<const BandwidthFunc::Step> steps) {
                       "]");
 }
 
+// FGState contains each flowgroup's allocation so far.
 struct FGState {
   FGState(FG flowgroup, const BandwidthFunc& fn)
       : fg(flowgroup),
@@ -31,7 +32,11 @@ struct FGState {
         current_path_capacity(0) {}
 
   FG fg;
+
+  // active_steps are the parts of the BW function that have yet to be satisfied
   absl::Span<const BandwidthFunc::Step> active_steps;
+
+  // Allocated fair_share and capacity (bps)
   double fair_share;
   int64_t alloc_bps;
 
@@ -48,6 +53,20 @@ struct FGState {
   PathSplit path_to_capacity;
 };
 
+// FGLinkState is temporary state used to compute the waterlevel on a given
+// link.
+struct FGLinkState {
+  FG fg;
+  absl::Span<const BandwidthFunc::Step> steps;
+  double fair_share;
+  int64_t alloc_bps;
+};
+
+double ComputeLinkWaterlevel(const bool is_double_check, const LinkId link_id,
+                             const double initial_waterlevel,
+                             double capacity_bps,
+                             std::vector<FGLinkState>& link_states);
+
 class LinkProblem {
  public:
   explicit LinkProblem(LinkId link_id, int64_t capacity_bps);
@@ -62,23 +81,12 @@ class LinkProblem {
   const absl::btree_map<FG, FGState*>& FGStates() const;
 
  private:
-  double MaxMinFairShareNoCache();
+  double MaxMinFairShareNoCache(bool is_double_check);
 
   const LinkId link_id_;
   double capacity_bps_;
   bool is_bottleneck_;
   absl::btree_map<FG, FGState*> fg_states_;
-
-  // State used during allocation when we don't want to manipulate the B4FGState
-  // right away.
-  struct FGLinkState {
-    FG fg;
-    absl::Span<const BandwidthFunc::Step> steps;
-    double fair_share;
-    int64_t alloc_bps;
-  };
-
-  friend std::ostream& operator<<(std::ostream& os, const FGLinkState& state);
 
   std::vector<FGLinkState> scratch_;
 
@@ -87,8 +95,7 @@ class LinkProblem {
   absl::optional<double> cached_fair_share_;
 };
 
-std::ostream& operator<<(std::ostream& os,
-                         const LinkProblem::FGLinkState& state) {
+std::ostream& operator<<(std::ostream& os, const FGLinkState& state) {
   return os << "{" << state.fg << " " << ToString(state.steps)
             << " share: " << state.fair_share << " bps: " << state.alloc_bps
             << "}";
@@ -108,40 +115,42 @@ void LinkProblem::Remove(FG fg, int64_t used_capacity_bps) {
   cached_fair_share_.reset();
   fg_states_.erase(fg);
   capacity_bps_ -= used_capacity_bps;
-  ABSL_ASSERT(capacity_bps_ >= 0);
+  CHECK_GE(capacity_bps_, 0);
 }
 
 double LinkProblem::MaxMinFairShare() {
   if (cached_fair_share_) {
     if (kDebugB4) {
-      double recomputed = MaxMinFairShareNoCache();
+      double recomputed = MaxMinFairShareNoCache(true);
       CHECK(*cached_fair_share_ == recomputed)
           << absl::StreamFormat("cached fair share is %f, should be %f",
                                 *cached_fair_share_, recomputed);
     }
   } else {
-    cached_fair_share_ = MaxMinFairShareNoCache();
+    ABSL_ASSERT(!is_bottleneck_);
+
+    cached_fair_share_ = MaxMinFairShareNoCache(false);
   }
 
   return *cached_fair_share_;
 }
 
-double LinkProblem::MaxMinFairShareNoCache() {
-  ABSL_ASSERT(!is_bottleneck_);
+double LinkProblem::MaxMinFairShareNoCache(bool is_double_check) {
+  std::vector<FGLinkState>& link_states = scratch_;
+  link_states.clear();
 
-  std::vector<FGLinkState>& active_states = scratch_;
-  active_states.clear();
-
-  double min_fair_share = std::numeric_limits<double>::infinity();
+  // Collect the FGs with unsatisfied demand and record the current waterlevel
+  double waterlevel = std::numeric_limits<double>::infinity();
   for (auto fg_state_pair : fg_states_) {
     FGState* state = fg_state_pair.second;
-    min_fair_share = std::min(min_fair_share, state->fair_share);
+    waterlevel = std::min(waterlevel, state->fair_share);
 
+    // Ignore FGs that have had their demand satisfied
     if (!state->active_steps.empty()) {
       ABSL_ASSERT(state->active_steps.front().fair_share >= state->fair_share);
       ABSL_ASSERT(state->active_steps.front().bps >= state->alloc_bps);
 
-      active_states.push_back({
+      link_states.push_back({
           .fg = fg_state_pair.first,
           .steps = state->active_steps,
           .fair_share = state->fair_share,
@@ -150,82 +159,117 @@ double LinkProblem::MaxMinFairShareNoCache() {
     }
   }
 
-  double cap_bps = capacity_bps_;
-  if (kDebugB4) {
-    LOG(INFO) << absl::StreamFormat(
-        "Link-MM: computing fair share on Link %d; active states:\n%s",
-        link_id_, absl::StrJoin(active_states, "\n", absl::StreamFormatter()));
+  if (link_states.empty()) {
+    if (kDebugB4 && !is_double_check) {
+      LOG(INFO) << "B4: Link " << link_id_ << ": fair share: " << waterlevel;
+    }
+    return waterlevel;
   }
 
-  // TODO: Maybe change the representation to make this allocation faster.
-  // We iterate over active_states in its entirety very often.
-  // Another possibility: cache the result of this function.
-  while (cap_bps > 1 && !active_states.empty()) {
-    if (kDebugB4) {
-      LOG(INFO) << absl::StreamFormat(
-          "Link-MM: next iteration: cap_bps: %f #active_states: %d", cap_bps,
-          active_states.size());
-    }
-    double next_step_share = std::numeric_limits<double>::infinity();
+  if (kDebugB4 && !is_double_check) {
+    LOG(INFO) << absl::StreamFormat(
+        "B4: Link %d: compute fair share; active states:\n%s", link_id_,
+        absl::StrJoin(link_states, "\n",
+                      [](std::string* out, const FGLinkState& link_state) {
+                        out->append("\t");
+                        absl::StreamFormatter()(out, link_state);
+                      }));
+  }
 
-    for (FGLinkState& state : active_states) {
+  return ComputeLinkWaterlevel(is_double_check, link_id_, waterlevel,
+                               capacity_bps_, link_states);
+}
+
+double ComputeLinkWaterlevel(const bool is_double_check, const LinkId link_id,
+                             const double initial_waterlevel,
+                             double capacity_bps,
+                             std::vector<FGLinkState>& link_states) {
+  // Compute a max-min fair share with a progressive waterfill
+
+  double waterlevel = initial_waterlevel;
+
+  // Maximize the waterlevel while staying within the link's capacity.
+  //
+  // TODO: Maybe change the representation to make this allocation faster.
+  // We iterate over link_states in its entirety very often.
+  // Another possibility: cache the result of this function.
+  while (capacity_bps > 1 && !link_states.empty()) {
+    if (kDebugB4 && !is_double_check) {
+      LOG(INFO) << absl::StreamFormat(
+          "B4: Link %d: next iteration: capacity_bps: %f #link_states: %d",
+          link_id, capacity_bps, link_states.size());
+    }
+
+    // Find the largest fair share that we can possibly increase the waterlevel
+    // to in a single step (i.e. where the slope of the sum of BW functions is
+    // constant).
+    double next_step_share = std::numeric_limits<double>::infinity();
+    for (FGLinkState& state : link_states) {
+      // We need to catch up any FGs that are behind others.
+      if (state.fair_share > waterlevel) {
+        next_step_share = std::min(next_step_share, state.fair_share);
+      }
+      // Only jump one step at a time to keep slope constant.
       next_step_share =
           std::min(next_step_share, state.steps.front().fair_share);
     }
 
+    // Figure out how much capacity we need per fair share unit from here until
+    // next_step_share.
     double bps_per_share = 0;
-    for (FGLinkState& state : active_states) {
+    for (FGLinkState& state : link_states) {
       if (state.fair_share < next_step_share) {
         bps_per_share += state.steps.front().bps_per_share;
       }
     }
 
-    if (kDebugB4) {
+    if (kDebugB4 && !is_double_check) {
       LOG(INFO) << absl::StreamFormat(
-          "Link-MM: next_step_share: %f bps_per_share: %f", next_step_share,
-          bps_per_share);
+          "B4: Link %d: next_step_share: %f bps_per_share: %f", link_id,
+          next_step_share, bps_per_share);
     }
 
-    double share_diff = next_step_share - min_fair_share;
+    double share_diff = next_step_share - waterlevel;
     double bps_needed = bps_per_share * share_diff;
-    if (bps_needed <= cap_bps) {
-      cap_bps -= bps_needed;
+    if (bps_needed <= capacity_bps) {
+      capacity_bps -= bps_needed;
     } else {
-      share_diff = cap_bps / bps_needed;
-      cap_bps = 0;
+      share_diff = capacity_bps / bps_needed;
+      capacity_bps = 0;
     }
-    min_fair_share += share_diff;
+    waterlevel += share_diff;
 
     double double_check_alloc_bps = 0;
-    for (size_t i = 0; i < active_states.size(); /* explicit index changes */) {
-      FGLinkState& state = active_states[i];
-      if (state.fair_share < min_fair_share) {
-        double to_add = (min_fair_share - state.fair_share) *
-                        state.steps.front().bps_per_share;
-        state.fair_share = min_fair_share;
+    for (size_t i = 0; i < link_states.size(); /* explicit index changes */) {
+      FGLinkState& state = link_states[i];
+      if (state.fair_share < waterlevel) {
+        double to_add =
+            (waterlevel - state.fair_share) * state.steps.front().bps_per_share;
+        state.fair_share = waterlevel;
         state.alloc_bps += to_add;
         double_check_alloc_bps += to_add;
-        if (state.steps.front().fair_share <= min_fair_share) {
+        if (state.steps.front().fair_share <= waterlevel) {
           state.steps.remove_prefix(1);
           if (state.steps.empty()) {
             // Current FG is satisfied, remove from active list.
-            active_states[i] = active_states.back();
-            active_states.resize(active_states.size() - 1);
+            link_states[i] = link_states.back();
+            link_states.resize(link_states.size() - 1);
             continue;
           }
         }
       }
+      // Done with this FG, move onto the next one
       i++;
     }
     constexpr double kAllocErrorTolerance = 0.5;
-    ABSL_ASSERT(std::abs(double_check_alloc_bps - share_diff * bps_per_share) <=
-                kAllocErrorTolerance);
+    CHECK_NEAR(double_check_alloc_bps, share_diff * bps_per_share,
+               kAllocErrorTolerance);
   }
 
-  if (kDebugB4) {
-    LOG(INFO) << "Link-MM: fair share: " << min_fair_share;
+  if (kDebugB4 && !is_double_check) {
+    LOG(INFO) << "B4: Link " << link_id << ": fair share: " << waterlevel;
   }
-  return min_fair_share;
+  return waterlevel;
 }
 
 void LinkProblem::MarkBottleneck() {
@@ -247,11 +291,6 @@ struct B4SolverState {
 
 void FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
                std::vector<FGState*>& frozen_fgs, B4SolverState& solver) {
-  if (kDebugB4) {
-    LOG(INFO) << "B4: freeze all " << frozen_fgs.size()
-              << " FGs on bottleneck link";
-  }
-
   LinkProblem& problem = solver.link_problems[bottleneck_link_id];
 
   frozen_fgs.clear();
@@ -260,6 +299,11 @@ void FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
   // Copy list of frozen FGs so we can mutate all link state.
   for (auto& fg_state_pair : problem.FGStates()) {
     frozen_fgs.push_back(fg_state_pair.second);
+  }
+
+  if (kDebugB4) {
+    LOG(INFO) << "B4: freeze all " << frozen_fgs.size()
+              << " FGs on bottleneck Link " << bottleneck_link_id;
   }
 
   for (FGState* state : frozen_fgs) {
@@ -372,6 +416,10 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
 
     state->current_path =
         path_provider_->NextBestPath(state->fg, solver.links_to_avoid);
+    if (kDebugB4) {
+      LOG(INFO) << "B4: added path [" << absl::StrJoin(state->current_path, " ")
+                << "] for " << p.first;
+    }
 
     for (LinkId link_id : state->current_path) {
       solver.link_problems[link_id].Add(state);
@@ -398,10 +446,6 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
 
     if (std::isinf(min_fair_share)) {
       break;  // no more work
-    }
-
-    if (kDebugB4) {
-      LOG(INFO) << "B4: Link " << link_id_of_min << " is the bottleneck";
     }
 
     FreezeFGs(min_fair_share, link_id_of_min, frozen_fgs, solver);
@@ -462,6 +506,11 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
         state->active_steps = state->active_steps.subspan(0, 0);
       } else {
         state->current_path = std::move(next_path);
+        if (kDebugB4) {
+          LOG(INFO) << "B4: added path ["
+                    << absl::StrJoin(state->current_path, " ") << "] for "
+                    << state->fg;
+        }
 
         for (LinkId link_id : state->current_path) {
           solver.link_problems[link_id].Add(state);

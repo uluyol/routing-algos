@@ -368,5 +368,158 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPathWithBudgetOne) {
                            }));
 }
 
+std::vector<Link> Sigcomm13ExampleLinks() {
+  return std::vector<Link>{
+      {
+          // Link 0
+          .src = 0,  // A
+          .dst = 1,  // B
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+      {
+          // Link 1
+          .src = 0,  // A
+          .dst = 2,  // C
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+      {
+          // Link 2
+          .src = 0,  // A
+          .dst = 3,  // D
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 10,
+      },
+      {
+          // Link 3
+          .src = 1,  // B
+          .dst = 0,  // A
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+      {
+          // Link 4
+          .src = 1,  // B
+          .dst = 2,  // C
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+      {
+          // Link 5
+          .src = 2,  // C
+          .dst = 0,  // A
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+      {
+          // Link 6
+          .src = 2,  // C
+          .dst = 1,  // B
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+      {
+          // Link 7
+          .src = 2,  // C
+          .dst = 3,  // D
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+      {
+          // Link 8
+          .src = 3,  // D
+          .dst = 0,  // A
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 10,
+      },
+      {
+          // Link 9
+          .src = 3,  // D
+          .dst = 2,  // C
+          .capacity_bps = 10'000'000'000,
+          .delay_ms = 1,
+      },
+  };
+}
+
+PerFG<BandwidthFunc> Sigcomm13Example1Funcs() {
+  BandwidthFunc func_a_b;
+  func_a_b.Push(1.5, 17'000'000'000);
+  func_a_b.Push(5, 20'000'000'000);
+  BandwidthFunc func_a_c;
+  func_a_c.Push(1.5, 1'000'000'000);
+  func_a_c.Push(5, 2'500'000'000);
+  func_a_c.Push(10, 5'000'000'000);
+
+  return {
+      {FG{0, 1}, func_a_b},
+      {FG{0, 2}, func_a_c},
+  };
+}
+
+TEST(B4Test, Sigcomm13Example1) {
+  std::vector<Link> expected_residual_links = Sigcomm13ExampleLinks();
+  expected_residual_links[0].capacity_bps = 0;              // A->B
+  expected_residual_links[1].capacity_bps = 0;              // A->C
+  expected_residual_links[6].capacity_bps = 0;              // C->B
+  expected_residual_links[2].capacity_bps = 5'000'000'000;  // A->D
+  expected_residual_links[9].capacity_bps = 5'000'000'000;  // D->C
+
+  std::vector<Link> links = Sigcomm13ExampleLinks();
+  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 10});
+  PerFG<PathSplit> path_splits = b4.Solve(Sigcomm13Example1Funcs(), links);
+
+  EXPECT_THAT(links, testing::ContainerEq(expected_residual_links));
+  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
+                               {FG{0, 1},
+                                PathSplit{
+                                    {Path{0}, 10'000'000'000},
+                                    {Path{1, 6}, 10'000'000'000},
+                                }},
+                               {FG{0, 2},
+                                PathSplit{
+                                    {Path{2, 9}, 5'000'000'000},
+                                }},
+                           }));
+}
+
+PerFG<BandwidthFunc> Sigcomm13Example2Funcs() {
+  BandwidthFunc func_a_b;
+  func_a_b.Push(1.5, 7'000'000'000);
+  func_a_b.Push(5, 10'000'000'000);
+  BandwidthFunc func_a_c;
+  func_a_c.Push(1.5, 1'000'000'000);
+  func_a_c.Push(5, 2'500'000'000);
+  func_a_c.Push(10, 5'000'000'000);
+  func_a_c.Push(20, 10'000'000'000);  // Seems OK? Missing detail in paper
+
+  return {
+      {FG{0, 1}, func_a_b},
+      {FG{0, 2}, func_a_c},
+  };
+}
+TEST(B4Test, Sigcomm13Example2) {
+  std::vector<Link> expected_residual_links = Sigcomm13ExampleLinks();
+  expected_residual_links[0].capacity_bps = 0;  // A->B
+  expected_residual_links[1].capacity_bps = 0;  // A->C
+
+  std::vector<Link> links = Sigcomm13ExampleLinks();
+  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 10});
+  PerFG<PathSplit> path_splits = b4.Solve(Sigcomm13Example2Funcs(), links);
+
+  EXPECT_THAT(links, testing::ContainerEq(expected_residual_links));
+  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
+                               {FG{0, 1},
+                                PathSplit{
+                                    {Path{0}, 10'000'000'000},
+                                }},
+                               {FG{0, 2},
+                                PathSplit{
+                                    {Path{1}, 5'000'000'000},
+                                }},
+                           }));
+}
+
 }  // namespace
 }  // namespace routing_algos
