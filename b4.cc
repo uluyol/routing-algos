@@ -46,8 +46,7 @@ struct FGState {
   // paths with zero capacity against the path budget (unless there are no other
   // options).
   //
-  // To make this work, we stash the current_path's capacity here in
-  // B4::FreezeFGs.
+  // To make this work, we stash the current_path's capacity here in FreezeLink.
   Path current_path;
   double current_path_capacity;
   PathSplit path_to_capacity;
@@ -234,7 +233,7 @@ double ComputeLinkWaterlevel(const bool is_double_check, const LinkId link_id,
     if (bps_needed <= capacity_bps) {
       capacity_bps -= bps_needed;
     } else {
-      share_diff = capacity_bps / bps_needed;
+      share_diff *= capacity_bps / bps_needed;
       capacity_bps = 0;
     }
     waterlevel += share_diff;
@@ -289,8 +288,8 @@ struct B4SolverState {
   absl::flat_hash_set<LinkId> links_to_avoid;
 };
 
-void FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
-               std::vector<FGState*>& frozen_fgs, B4SolverState& solver) {
+void FreezeLink(const double fair_share, const LinkId bottleneck_link_id,
+                std::vector<FGState*>& frozen_fgs, B4SolverState& solver) {
   LinkProblem& problem = solver.link_problems[bottleneck_link_id];
 
   frozen_fgs.clear();
@@ -303,7 +302,8 @@ void FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
 
   if (kDebugB4) {
     LOG(INFO) << "B4: freeze all " << frozen_fgs.size()
-              << " FGs on bottleneck Link " << bottleneck_link_id;
+              << " FGs on bottleneck Link " << bottleneck_link_id
+              << " and set fair_share ≥ " << fair_share;
   }
 
   for (FGState* state : frozen_fgs) {
@@ -316,8 +316,8 @@ void FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
       if (cur_step.fair_share <= fair_share) {
         state->alloc_bps +=
             cur_step.bps_per_share * (cur_step.fair_share - state->fair_share);
+        CHECK_NEAR(state->alloc_bps, cur_step.bps, 1);
         state->fair_share = cur_step.fair_share;
-        ABSL_ASSERT(state->alloc_bps == cur_step.bps);
 
         state->active_steps.remove_prefix(1);  // Done with this step
       } else /* cur_step.fair_share > fair_share */ {
@@ -333,11 +333,19 @@ void FreezeFGs(const double fair_share, const LinkId bottleneck_link_id,
     int64_t added_bps = state->alloc_bps - initial_bps;
     for (LinkId link_id : state->current_path) {
       solver.link_problems[link_id].Remove(state->fg, added_bps);
+
+      // Don't try routing over a saturated link
+      if (solver.link_problems[link_id].capacity_bps() <= 0) {
+        solver.links_to_avoid.insert(link_id);
+      }
     }
 
     // Third, record the path capacity.
     state->current_path_capacity = added_bps;
   }
+
+  solver.links_to_avoid.insert(bottleneck_link_id);
+  solver.link_problems[bottleneck_link_id].MarkBottleneck();
 }
 
 bool AllLinksSaturated(const B4SolverState& s) {
@@ -399,6 +407,53 @@ std::ostream& operator<<(std::ostream& os, const BandwidthFunc& func) {
 B4::B4(std::unique_ptr<PathProvider> path_provider, Config config)
     : config_(config), path_provider_(std::move(path_provider)) {}
 
+// B4 Route Allocation Algorithm (SIGCOMM'13)
+//
+// First, each flow group is assigned to its shortest tunnel.
+//
+// Then, we search for the link that has the bottleneck fair share when all flow
+// groups have their fair share increased together.
+//
+// The tricky part here is that a bottleneck on one link acts as a hard limit on
+// how much bandwidth a flow group can get.
+// If we look at links independently of one another, then it may seem that we
+// will overestimate how much certain flow groups will get, and underestimate
+// how much others will get.
+//
+// As it turns out, this doesn't matter:
+// - Assume that we compute bottleneck fair share independently for each link,
+//   and that Link i is the bottleneck with fair share s.
+// - If some FG x traverses another Link j, the question is whether or not Link
+//   j will throttle FG x to a bandwidith lower than Link i.
+// - Let f(s) be the bandwidth function for FG x and s' be the fair share on
+//   Link j (again, when looked at independently of other links).
+// - We know (because Link i is the bottleneck), that s ≤ s'.
+// - We also know that f(s) is monotonically increasing.
+// - Hence f(s) ≤ f(s'), so it is impossible for Link j to bottleneck FG x more
+//   than Link i.
+//
+// So, to identify which link is the bottleneck, we can simply look at the state
+// of each link independently, and pick the one with the lowest fair share.
+//
+// Once we've done this, we stop using that link and add the paths that cross it
+// to the set of paths used by the FGs. For FGs with more demand, we add the
+// next-best path, and repeat this process.
+//
+// A few notes:
+//
+// - Staying within the path budget is slightly tricky:
+//   We want to ensure that all FGs get a path, even those that have zero demand
+//   or end up with zero capacity allocated to them, but we otherwise want to
+//   ignore as they eat up the path budget with no contribution.
+//
+// - We need to account for FGs' previously allocated bandwidth when computing
+//   the fair share on each link:
+//   Consider FGs with an unweighted max-min fair allocation (i.e. all
+//   constant, equal slopes in their bandwidth functions). If FG x gets 10 G on
+//   its first path and is assigned a new path, we don't want to immediately
+//   give it more bandwidth: it should only start to get bandwidth when others
+//   have caught up and also gotten 10 G.
+//
 PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
                            std::vector<Link>& links) {
   B4SolverState solver;
@@ -448,9 +503,7 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
       break;  // no more work
     }
 
-    FreezeFGs(min_fair_share, link_id_of_min, frozen_fgs, solver);
-    solver.links_to_avoid.insert(link_id_of_min);
-    solver.link_problems[link_id_of_min].MarkBottleneck();
+    FreezeLink(min_fair_share, link_id_of_min, frozen_fgs, solver);
 
     // Add next-best paths for any frozen FGs
     for (FGState* state : frozen_fgs) {

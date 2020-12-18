@@ -24,6 +24,55 @@ std::vector<Link> LinearNetwork() {
   };
 }
 
+MATCHER_P2(LinksNear, expected, margin_bps, "") {
+  if (arg.size() != expected.size()) {
+    return false;
+  }
+  for (LinkId id = 0; id < expected.size(); id++) {
+    Link a = arg[id];
+    Link b = expected[id];
+    a.capacity_bps = 0;
+    b.capacity_bps = 0;
+    if (!(a == b)) {
+      return false;
+    }
+    if (std::abs(a.capacity_bps - b.capacity_bps) > margin_bps) {
+      return false;
+    }
+  }
+  return true;
+}
+
+MATCHER_P2(PathSplitsNear, expected, margin_bps, "") {
+  if (arg.size() != expected.size()) {
+    return false;
+  }
+  for (const auto& fg_path_split_pair : expected) {
+    const FG& fg = fg_path_split_pair.first;
+    auto got_fg_path_split_iter = arg.find(fg);
+    if (got_fg_path_split_iter == arg.end()) {
+      return false;
+    }
+    const PathSplit& path_split_a = got_fg_path_split_iter->second;
+    const PathSplit& path_split_b = fg_path_split_pair.second;
+    if (path_split_a.size() != path_split_b.size()) {
+      return false;
+    }
+    for (const auto& path_split_pair : path_split_b) {
+      auto it = path_split_a.find(path_split_pair.first);
+      if (it == path_split_a.end()) {
+        return false;
+      }
+      double split_a = it->second;
+      double split_b = path_split_pair.second;
+      if (std::abs(split_a - split_b) > margin_bps) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 TEST(B4Test, LinearFair_One_To_Three) {
   B4 b4(absl::make_unique<SPFPathProvider>(LinearNetwork()),
         {.path_budget_per_fg = 100});
@@ -47,11 +96,10 @@ TEST(B4Test, LinearFair_One_To_Three) {
   expected_residual_links[1].capacity_bps = 0;
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
-  EXPECT_THAT(path_splits,
-              testing::Eq(PerFG<PathSplit>{
-                  {FG{1, 2}, PathSplit{{{LinkId(1)}, 20}}},
-                  {FG{0, 2}, PathSplit{{{LinkId(0), LinkId(1)}, 80}}},
-              }));
+  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
+                               {FG{1, 2}, PathSplit{{Path{1}, 20}}},
+                               {FG{0, 2}, PathSplit{{Path{0, 1}, 80}}},
+                           }));
 }
 
 TEST(B4Test, LinearFair_AllJustSatisfied) {
@@ -77,11 +125,10 @@ TEST(B4Test, LinearFair_AllJustSatisfied) {
   expected_residual_links[1].capacity_bps = 0;
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
-  EXPECT_THAT(path_splits,
-              testing::Eq(PerFG<PathSplit>{
-                  {FG{1, 2}, PathSplit{{{LinkId(1)}, 70}}},
-                  {FG{0, 2}, PathSplit{{{LinkId(0), LinkId(1)}, 30}}},
-              }));
+  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
+                               {FG{1, 2}, PathSplit{{Path{1}, 70}}},
+                               {FG{0, 2}, PathSplit{{Path{0, 1}, 30}}},
+                           }));
 }
 
 TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
@@ -107,11 +154,10 @@ TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
   expected_residual_links[1].capacity_bps = 30;
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
-  EXPECT_THAT(path_splits,
-              testing::Eq(PerFG<PathSplit>{
-                  {FG{1, 2}, PathSplit{{{LinkId(1)}, 40}}},
-                  {FG{0, 2}, PathSplit{{{LinkId(0), LinkId(1)}, 30}}},
-              }));
+  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
+                               {FG{1, 2}, PathSplit{{Path{1}, 40}}},
+                               {FG{0, 2}, PathSplit{{Path{0, 1}, 30}}},
+                           }));
 }
 
 TEST(B4Test, LinearFair_UnroutableTraffic) {
@@ -138,7 +184,7 @@ TEST(B4Test, LinearFair_UnroutableTraffic) {
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
   EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
-                               {FG{1, 2}, PathSplit{{{LinkId(1)}, 40}}},
+                               {FG{1, 2}, PathSplit{{Path{1}, 40}}},
                                {FG{2, 0}, PathSplit{}},
                            }));
 }
@@ -166,11 +212,10 @@ TEST(B4Test, LinearFair_ZeroDemandGetsShortestPath) {
   expected_residual_links[1].capacity_bps = 0;
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
-  EXPECT_THAT(path_splits,
-              testing::Eq(PerFG<PathSplit>{
-                  {FG{1, 2}, PathSplit{{{LinkId(1)}, 100}}},
-                  {FG{0, 2}, PathSplit{{{LinkId(0), LinkId(1)}, 0}}},
-              }));
+  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
+                               {FG{1, 2}, PathSplit{{Path{1}, 100}}},
+                               {FG{0, 2}, PathSplit{{Path{0, 1}, 0}}},
+                           }));
 }
 
 TEST(B4Test, TriangleLowDemand) {
@@ -214,8 +259,8 @@ TEST(B4Test, TriangleLowDemand) {
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
   EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
-                               {FG{1, 2}, PathSplit{{{LinkId(2)}, 50}}},
-                               {FG{0, 2}, PathSplit{{{LinkId(1)}, 50}}},
+                               {FG{1, 2}, PathSplit{{Path{2}, 50}}},
+                               {FG{0, 2}, PathSplit{{Path{1}, 50}}},
                            }));
 }
 
@@ -260,11 +305,10 @@ TEST(B4Test, TriangleUsesFasterPath) {
   expected_residual_links[2].capacity_bps = 0;
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
-  EXPECT_THAT(path_splits,
-              testing::Eq(PerFG<PathSplit>{
-                  {FG{1, 2}, PathSplit{{{LinkId(2)}, 50}}},
-                  {FG{0, 2}, PathSplit{{{LinkId(0), LinkId(2)}, 50}}},
-              }));
+  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
+                               {FG{1, 2}, PathSplit{{Path{2}, 50}}},
+                               {FG{0, 2}, PathSplit{{Path{0, 2}, 50}}},
+                           }));
 }
 
 TEST(B4Test, TriangleLowPriUsesJustSlowPath) {
@@ -312,8 +356,8 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPath) {
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
   EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
-                               {FG{1, 2}, PathSplit{{{LinkId(2)}, 100}}},
-                               {FG{0, 2}, PathSplit{{{LinkId(1)}, 100}}},
+                               {FG{1, 2}, PathSplit{{Path{2}, 100}}},
+                               {FG{0, 2}, PathSplit{{Path{1}, 100}}},
                            }));
 }
 
@@ -363,8 +407,8 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPathWithBudgetOne) {
 
   EXPECT_THAT(residual_links, testing::ContainerEq(expected_residual_links));
   EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
-                               {FG{1, 2}, PathSplit{{{LinkId(2)}, 100}}},
-                               {FG{0, 2}, PathSplit{{{LinkId(1)}, 100}}},
+                               {FG{1, 2}, PathSplit{{Path{2}, 100}}},
+                               {FG{0, 2}, PathSplit{{Path{1}, 100}}},
                            }));
 }
 
@@ -470,18 +514,20 @@ TEST(B4Test, Sigcomm13Example1) {
   B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 10});
   PerFG<PathSplit> path_splits = b4.Solve(Sigcomm13Example1Funcs(), links);
 
-  EXPECT_THAT(links, testing::ContainerEq(expected_residual_links));
-  EXPECT_THAT(path_splits, testing::Eq(PerFG<PathSplit>{
-                               {FG{0, 1},
-                                PathSplit{
-                                    {Path{0}, 10'000'000'000},
-                                    {Path{1, 6}, 10'000'000'000},
-                                }},
-                               {FG{0, 2},
-                                PathSplit{
-                                    {Path{2, 9}, 5'000'000'000},
-                                }},
-                           }));
+  EXPECT_THAT(links, LinksNear(expected_residual_links, 1));
+  EXPECT_THAT(path_splits,
+              PathSplitsNear(
+                  PerFG<PathSplit>{
+                      {FG{0, 1}, PathSplit{{Path{0}, 10'000'000'000},
+                                           {Path{1, 6}, 8'333'333'333},
+                                           {Path{2, 9, 6}, 1'666'666'667}}},
+                      {FG{0, 2},
+                       PathSplit{
+                           {Path{1}, 1'666'666'666},
+                           {Path{2, 9}, 3'333'333'333},
+                       }},
+                  },
+                  1));
 }
 
 PerFG<BandwidthFunc> Sigcomm13Example2Funcs() {
@@ -516,7 +562,7 @@ TEST(B4Test, Sigcomm13Example2) {
                                 }},
                                {FG{0, 2},
                                 PathSplit{
-                                    {Path{1}, 5'000'000'000},
+                                    {Path{1}, 10'000'000'000},
                                 }},
                            }));
 }
