@@ -13,6 +13,10 @@ namespace routing_algos {
 
 struct Node {
   std::string name;
+
+  // A transit node is one that only carries traffic; it is not a source or
+  // destination.
+  bool transit_only = false;
 };
 
 using NodeId = uint32_t;

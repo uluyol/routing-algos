@@ -3,26 +3,10 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "spf_path_provider.h"
+#include "test_data.h"
 
 namespace routing_algos {
 namespace {
-
-std::vector<Link> LinearNetwork() {
-  return std::vector<Link>{
-      {
-          .src = 0,
-          .dst = 1,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-      {
-          .src = 1,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-  };
-}
 
 MATCHER_P2(LinksNear, expected, margin_bps, "") {
   if (arg.size() != expected.size()) {
@@ -74,7 +58,9 @@ MATCHER_P2(PathSplitsNear, expected, margin_bps, "") {
 }
 
 TEST(B4Test, LinearFair_One_To_Three) {
-  B4 b4(absl::make_unique<SPFPathProvider>(LinearNetwork()),
+  const TestTopology topology = LinearNetwork();
+
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -83,7 +69,7 @@ TEST(B4Test, LinearFair_One_To_Three) {
   BandwidthFunc bw_func_0_2;
   bw_func_0_2.Push(1, 100);
 
-  std::vector<Link> residual_links = LinearNetwork();
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func_1_2},
@@ -91,7 +77,7 @@ TEST(B4Test, LinearFair_One_To_Three) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = LinearNetwork();
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 20;
   expected_residual_links[1].capacity_bps = 0;
 
@@ -103,7 +89,9 @@ TEST(B4Test, LinearFair_One_To_Three) {
 }
 
 TEST(B4Test, LinearFair_AllJustSatisfied) {
-  B4 b4(absl::make_unique<SPFPathProvider>(LinearNetwork()),
+  const TestTopology topology = LinearNetwork();
+
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -112,7 +100,7 @@ TEST(B4Test, LinearFair_AllJustSatisfied) {
   BandwidthFunc bw_func_0_2;
   bw_func_0_2.Push(1, 30);
 
-  std::vector<Link> residual_links = LinearNetwork();
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func_1_2},
@@ -120,7 +108,7 @@ TEST(B4Test, LinearFair_AllJustSatisfied) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = LinearNetwork();
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 70;
   expected_residual_links[1].capacity_bps = 0;
 
@@ -132,7 +120,9 @@ TEST(B4Test, LinearFair_AllJustSatisfied) {
 }
 
 TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
-  B4 b4(absl::make_unique<SPFPathProvider>(LinearNetwork()),
+  const TestTopology topology = LinearNetwork();
+
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -141,7 +131,7 @@ TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
   BandwidthFunc bw_func_0_2;
   bw_func_0_2.Push(1, 30);
 
-  std::vector<Link> residual_links = LinearNetwork();
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func_1_2},
@@ -149,7 +139,7 @@ TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = LinearNetwork();
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 70;
   expected_residual_links[1].capacity_bps = 30;
 
@@ -161,7 +151,9 @@ TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
 }
 
 TEST(B4Test, LinearFair_UnroutableTraffic) {
-  B4 b4(absl::make_unique<SPFPathProvider>(LinearNetwork()),
+  const TestTopology topology = LinearNetwork();
+
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -170,7 +162,7 @@ TEST(B4Test, LinearFair_UnroutableTraffic) {
   BandwidthFunc bw_func_2_0;
   bw_func_2_0.Push(1, 30);
 
-  std::vector<Link> residual_links = LinearNetwork();
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func_1_2},
@@ -178,7 +170,7 @@ TEST(B4Test, LinearFair_UnroutableTraffic) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = LinearNetwork();
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 100;
   expected_residual_links[1].capacity_bps = 60;
 
@@ -190,7 +182,9 @@ TEST(B4Test, LinearFair_UnroutableTraffic) {
 }
 
 TEST(B4Test, LinearFair_ZeroDemandGetsShortestPath) {
-  B4 b4(absl::make_unique<SPFPathProvider>(LinearNetwork()),
+  const TestTopology topology = LinearNetwork();
+
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -199,7 +193,7 @@ TEST(B4Test, LinearFair_ZeroDemandGetsShortestPath) {
   BandwidthFunc bw_func_0_2;
   bw_func_0_2.Push(1, 0);
 
-  std::vector<Link> residual_links = LinearNetwork();
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func_1_2},
@@ -207,7 +201,7 @@ TEST(B4Test, LinearFair_ZeroDemandGetsShortestPath) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = LinearNetwork();
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 100;
   expected_residual_links[1].capacity_bps = 0;
 
@@ -219,33 +213,15 @@ TEST(B4Test, LinearFair_ZeroDemandGetsShortestPath) {
 }
 
 TEST(B4Test, TriangleLowDemand) {
-  std::vector<Link> links{
-      {
-          .src = 0,
-          .dst = 1,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-      {
-          .src = 0,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-      {
-          .src = 1,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-  };
+  const TestTopology topology = TriangleNetwork();
 
-  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 2});
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+        {.path_budget_per_fg = 2});
 
   BandwidthFunc bw_func;
   bw_func.Push(1, 50);
 
-  std::vector<Link> residual_links = links;
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func},
@@ -253,7 +229,7 @@ TEST(B4Test, TriangleLowDemand) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = links;
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[1].capacity_bps = 50;
   expected_residual_links[2].capacity_bps = 50;
 
@@ -265,33 +241,16 @@ TEST(B4Test, TriangleLowDemand) {
 }
 
 TEST(B4Test, TriangleUsesFasterPath) {
-  std::vector<Link> links{
-      {
-          .src = 0,
-          .dst = 1,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-      {
-          .src = 0,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 100,
-      },
-      {
-          .src = 1,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-  };
+  TestTopology topology = TriangleNetwork();
+  topology.links[1].delay_ms = 100;
 
-  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 1});
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+        {.path_budget_per_fg = 1});
 
   BandwidthFunc bw_func;
   bw_func.Push(1, 50);
 
-  std::vector<Link> residual_links = links;
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func},
@@ -299,7 +258,7 @@ TEST(B4Test, TriangleUsesFasterPath) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = links;
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 50;
   expected_residual_links[1].capacity_bps = 100;
   expected_residual_links[2].capacity_bps = 0;
@@ -312,28 +271,11 @@ TEST(B4Test, TriangleUsesFasterPath) {
 }
 
 TEST(B4Test, TriangleLowPriUsesJustSlowPath) {
-  std::vector<Link> links{
-      {
-          .src = 0,
-          .dst = 1,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-      {
-          .src = 0,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 100,
-      },
-      {
-          .src = 1,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-  };
+  TestTopology topology = TriangleNetwork();
+  topology.links[1].delay_ms = 100;
 
-  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 2});
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+        {.path_budget_per_fg = 2});
 
   BandwidthFunc bw_func_1_2;
   bw_func_1_2.Push(1, 100);
@@ -342,7 +284,7 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPath) {
   bw_func_0_2.Push(4, 0);
   bw_func_0_2.Push(5, 100);
 
-  std::vector<Link> residual_links = links;
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func_1_2},
@@ -350,7 +292,7 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPath) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = links;
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[1].capacity_bps = 0;
   expected_residual_links[2].capacity_bps = 0;
 
@@ -362,29 +304,12 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPath) {
 }
 
 TEST(B4Test, TriangleLowPriUsesJustSlowPathWithBudgetOne) {
-  std::vector<Link> links{
-      {
-          .src = 0,
-          .dst = 1,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-      {
-          .src = 0,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 100,
-      },
-      {
-          .src = 1,
-          .dst = 2,
-          .capacity_bps = 100,
-          .delay_ms = 1,
-      },
-  };
+  TestTopology topology = TriangleNetwork();
+  topology.links[1].delay_ms = 100;
 
   // Difference from previous test is that path_budget_per_fg is 1
-  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 1});
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+        {.path_budget_per_fg = 1});
 
   BandwidthFunc bw_func_1_2;
   bw_func_1_2.Push(1, 100);
@@ -393,7 +318,7 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPathWithBudgetOne) {
   bw_func_0_2.Push(4, 0);
   bw_func_0_2.Push(5, 100);
 
-  std::vector<Link> residual_links = links;
+  std::vector<Link> residual_links = topology.links;
   PerFG<PathSplit> path_splits = b4.Solve(
       {
           {FG{1, 2}, bw_func_1_2},
@@ -401,7 +326,7 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPathWithBudgetOne) {
       },
       residual_links);
 
-  std::vector<Link> expected_residual_links = links;
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[1].capacity_bps = 0;
   expected_residual_links[2].capacity_bps = 0;
 
@@ -410,81 +335,6 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPathWithBudgetOne) {
                                {FG{1, 2}, PathSplit{{Path{2}, 100}}},
                                {FG{0, 2}, PathSplit{{Path{1}, 100}}},
                            }));
-}
-
-std::vector<Link> Sigcomm13ExampleLinks() {
-  return std::vector<Link>{
-      {
-          // Link 0
-          .src = 0,  // A
-          .dst = 1,  // B
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-      {
-          // Link 1
-          .src = 0,  // A
-          .dst = 2,  // C
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-      {
-          // Link 2
-          .src = 0,  // A
-          .dst = 3,  // D
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 10,
-      },
-      {
-          // Link 3
-          .src = 1,  // B
-          .dst = 0,  // A
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-      {
-          // Link 4
-          .src = 1,  // B
-          .dst = 2,  // C
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-      {
-          // Link 5
-          .src = 2,  // C
-          .dst = 0,  // A
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-      {
-          // Link 6
-          .src = 2,  // C
-          .dst = 1,  // B
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-      {
-          // Link 7
-          .src = 2,  // C
-          .dst = 3,  // D
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-      {
-          // Link 8
-          .src = 3,  // D
-          .dst = 0,  // A
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 10,
-      },
-      {
-          // Link 9
-          .src = 3,  // D
-          .dst = 2,  // C
-          .capacity_bps = 10'000'000'000,
-          .delay_ms = 1,
-      },
-  };
 }
 
 PerFG<BandwidthFunc> Sigcomm13Example1Funcs() {
@@ -503,15 +353,18 @@ PerFG<BandwidthFunc> Sigcomm13Example1Funcs() {
 }
 
 TEST(B4Test, Sigcomm13Example1) {
-  std::vector<Link> expected_residual_links = Sigcomm13ExampleLinks();
+  const TestTopology topology = FourNodeNetwork();
+
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 0;              // A->B
   expected_residual_links[1].capacity_bps = 0;              // A->C
   expected_residual_links[6].capacity_bps = 0;              // C->B
   expected_residual_links[2].capacity_bps = 5'000'000'000;  // A->D
   expected_residual_links[9].capacity_bps = 5'000'000'000;  // D->C
 
-  std::vector<Link> links = Sigcomm13ExampleLinks();
-  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 10});
+  std::vector<Link> links = topology.links;
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+        {.path_budget_per_fg = 10});
   PerFG<PathSplit> path_splits = b4.Solve(Sigcomm13Example1Funcs(), links);
 
   EXPECT_THAT(links, LinksNear(expected_residual_links, 1));
@@ -546,12 +399,15 @@ PerFG<BandwidthFunc> Sigcomm13Example2Funcs() {
   };
 }
 TEST(B4Test, Sigcomm13Example2) {
-  std::vector<Link> expected_residual_links = Sigcomm13ExampleLinks();
+  const TestTopology topology = FourNodeNetwork();
+
+  std::vector<Link> expected_residual_links = topology.links;
   expected_residual_links[0].capacity_bps = 0;  // A->B
   expected_residual_links[1].capacity_bps = 0;  // A->C
 
-  std::vector<Link> links = Sigcomm13ExampleLinks();
-  B4 b4(absl::make_unique<SPFPathProvider>(links), {.path_budget_per_fg = 10});
+  std::vector<Link> links = topology.links;
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+        {.path_budget_per_fg = 10});
   PerFG<PathSplit> path_splits = b4.Solve(Sigcomm13Example2Funcs(), links);
 
   EXPECT_THAT(links, testing::ContainerEq(expected_residual_links));

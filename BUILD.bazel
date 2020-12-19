@@ -67,6 +67,7 @@ cc_test(
     deps = [
         ":b4",
         ":spf_path_provider",
+        ":test_data",
         "@gtest//:gtest_main",
     ],
 )
@@ -78,4 +79,11 @@ cc_test(
         ":conversion",
         "@gtest//:gtest_main",
     ],
+)
+
+cc_library(
+    name = "test_data",
+    srcs = glob(["test_data_*.cc"]),
+    hdrs = ["test_data.h"],
+    deps = [":types"],
 )
