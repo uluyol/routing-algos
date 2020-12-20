@@ -9,7 +9,7 @@ namespace routing_algos {
 
 namespace {
 
-constexpr bool kDebugB4 = true;
+constexpr bool kDebugB4 = false;
 
 struct ParenStepFormatter {
   void operator()(std::string* out, const BandwidthFunc::Step& step) {
@@ -317,9 +317,12 @@ void FreezeLink(const double fair_share, const LinkId bottleneck_link_id,
             fair_share > state->fair_share)) {
       auto& cur_step = state->active_steps.front();
       if (cur_step.fair_share <= fair_share) {
+        ABSL_ASSERT(state->alloc_bps >= 0);
+        ABSL_ASSERT(cur_step.bps_per_share >= 0);
+        ABSL_ASSERT(cur_step.fair_share - state->fair_share >= 0);
         state->alloc_bps +=
             cur_step.bps_per_share * (cur_step.fair_share - state->fair_share);
-        CHECK_NEAR(state->alloc_bps, cur_step.bps, 1);
+        CHECK_NEAR(state->alloc_bps, cur_step.bps, 10);
         state->fair_share = cur_step.fair_share;
 
         state->active_steps.remove_prefix(1);  // Done with this step
@@ -374,6 +377,13 @@ bool AllDemandsSatisfied(const B4SolverState& s) {
 void BandwidthFunc::Clear() { func_.clear(); }
 
 void BandwidthFunc::Push(double fair_share, int64_t bps) {
+  ABSL_ASSERT(fair_share >= 0);
+  ABSL_ASSERT(bps >= 0);
+
+  if (fair_share == 0) {
+    ABSL_ASSERT(bps == 0);
+  }
+
   double last_bps = 0;
   double last_fair_share = 0;
   if (!func_.empty()) {
