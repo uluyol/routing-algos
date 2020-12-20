@@ -83,8 +83,13 @@ void FuzzB4(MiniFuzzerState &state) {
     double total_fair_share = 0;
     int64_t total_bps = 0;
     while (func.Func().size() < num_steps) {
-      total_fair_share += state.Int<double>(0, 3);
+      total_fair_share += state.Double(0, 3);
       total_bps += state.Int<int64_t>(0, 100'000'000'000);
+
+      if (total_fair_share == 0 && total_bps > 0) {
+        continue;
+      }
+
       func.Push(total_fair_share, total_bps);
     }
 
