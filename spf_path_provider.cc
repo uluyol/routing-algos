@@ -31,9 +31,11 @@ SPFPathProvider::SPFPathProvider(const std::vector<Node>& nodes,
 
   node_id_to_nc_node_index_.resize(nodes.size(), nc::net::GraphNodeIndex(-1));
   for (NodeId id = 0; id < node_id_to_nc_node_index_.size(); id++) {
-    nc::net::GraphNodeIndex index =
-        graph_->NodeFromStringOrDie(absl::StrCat(id));
-    node_id_to_nc_node_index_[id] = index;
+    const nc::net::GraphNodeIndex* index =
+        graph_->NodeFromStringOrNull(absl::StrCat(id));
+    if (index != nullptr) {
+      node_id_to_nc_node_index_[id] = *index;
+    }
   }
 }
 
@@ -47,6 +49,13 @@ Path SPFPathProvider::NextBestPath(
 
   auto src_index = node_id_to_nc_node_index_[fg.src];
   auto dst_index = node_id_to_nc_node_index_[fg.dst];
+
+  if (src_index == nc::net::GraphNodeIndex(-1) ||
+      dst_index == nc::net::GraphNodeIndex(-1)) {
+    // Unknown src or dst: can happen when no links contain the node.
+    // Since no links contains src or dst, there can't possibly be any path.
+    return Path{};
+  }
 
   std::unique_ptr<nc::net::Walk> walk = nc::net::ShortestPathWithConstraints(
       src_index, dst_index, *graph_, constraints);
