@@ -81,7 +81,8 @@ void FuzzB4(MiniFuzzerState &state) {
 
   auto flowgroups = EnumerateFGs(topology.nodes);
   PerFG<BandwidthFunc> funcs;
-  const uint8_t num_fgs = state.Int<uint8_t>(0, 65);
+  const uint8_t num_fgs =
+      state.Int<uint8_t>(0, std::min<uint8_t>(65, flowgroups.size() - 1));
   while (funcs.size() < num_fgs) {
     FG fg = flowgroups[state.Int<uint32_t>(0, flowgroups.size() - 1)];
     if (funcs.contains(fg)) {
