@@ -49,6 +49,9 @@ cc_library(
     deps = [
         ":path_provider",
         "//third_party/ncode-common",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
+        "@glog",
     ],
 )
 

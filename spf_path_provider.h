@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include "absl/types/optional.h"
 #include "path_provider.h"
 #include "third_party/ncode-common/algorithm.h"
 #include "types.h"
@@ -20,8 +21,10 @@ class SPFPathProvider : public PathProvider {
  private:
   std::unique_ptr<nc::net::GraphStorage> graph_;
   std::vector<LinkId> nc_link_index_to_link_id_;
-  std::vector<nc::net::GraphLinkIndex> link_id_to_nc_link_index_;
-  std::vector<nc::net::GraphNodeIndex> node_id_to_nc_node_index_;
+  std::vector<absl::optional<nc::net::GraphLinkIndex>>
+      link_id_to_nc_link_index_;
+  std::vector<absl::optional<nc::net::GraphNodeIndex>>
+      node_id_to_nc_node_index_;
 };
 
 }  // namespace routing_algos
