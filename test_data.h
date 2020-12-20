@@ -40,9 +40,9 @@ TestTopology FourNodeNetwork();
 // https://github.com/uluyol/tracegeog
 // ------
 
-TestTopology TracedAkamaiTopology();
-TestTopology TracedAWSTopology();
-TestTopology TracedCloudflareTopology();
-TestTopology TracedB4Topology();
+TestTopology TracedAkamaiNetwork();
+TestTopology TracedAWSNetwork();
+TestTopology TracedCloudflareNetwork();
+TestTopology TracedB4Network();
 
 }  // namespace routing_algos

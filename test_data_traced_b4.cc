@@ -2,7 +2,7 @@
 
 namespace routing_algos {
 
-TestTopology TracedB4Topology() {
+TestTopology TracedB4Network() {
   std::vector<Node> nodes{
     {
       .name = "node_0",

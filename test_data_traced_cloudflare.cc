@@ -2,7 +2,7 @@
 
 namespace routing_algos {
 
-TestTopology TracedCloudflareTopology() {
+TestTopology TracedCloudflareNetwork() {
   std::vector<Node> nodes{
     {
       .name = "node_0",

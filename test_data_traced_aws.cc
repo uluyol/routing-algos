@@ -2,7 +2,7 @@
 
 namespace routing_algos {
 
-TestTopology TracedAWSTopology() {
+TestTopology TracedAWSNetwork() {
   std::vector<Node> nodes{
     {
       .name = "node_0",
