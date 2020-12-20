@@ -85,7 +85,10 @@ cc_library(
     name = "test_data",
     srcs = glob(["test_data_*.cc"]),
     hdrs = ["test_data.h"],
-    deps = [":types"],
+    deps = [
+        ":types",
+        "@com_google_absl//absl/container:flat_hash_map",
+    ],
 )
 
 cc_test(

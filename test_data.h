@@ -45,4 +45,9 @@ TestTopology TracedAWSNetwork();
 TestTopology TracedCloudflareNetwork();
 TestTopology TracedB4Network();
 
+// DedupLinks combines links between the same src and dst nodes.
+// The capacities are summed together in the combined link and the delay is the
+// max of the original links.
+TestTopology DedupLinks(TestTopology input);
+
 }  // namespace routing_algos

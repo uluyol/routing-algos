@@ -1,7 +1,7 @@
 #!/usr/bin/env awk -f
 
 BEGIN {
-    printf "#include \"test_data.h\"\n\nnamespace routing_algos {\n\nTestTopology %s() {\n", func_name;
+    printf "#include \"test_data.h\"\n\nnamespace routing_algos {\n\nnamespace {\n\nTestTopology Raw%s() {\n", func_name;
 }
 
 /^NODES/ {
@@ -9,11 +9,11 @@ BEGIN {
 }
 
 /^node_[0-9]+/ {
-    printf "    {\n      .name = \"%s\",\n      .transit_only = false,\n    },\n", $1;
+    printf "      {\n          .name = \"%s\",\n          .transit_only = false,\n      },\n", $1;
 }
 
 /^transit_[0-9]+/ {
-    printf "    {\n      .name = \"%s\",\n      .transit_only = true,\n    },\n", $1;
+    printf "      {\n          .name = \"%s\",\n          .transit_only = true,\n      },\n", $1;
 }
 
 /^EDGES/ {
@@ -21,9 +21,9 @@ BEGIN {
 }
 
 /^edge/ {
-    printf "    {\n      // %s\n      .src = %d,\n      .dst = %d,\n      .capacity_bps = %d,\n      .delay_ms = %f,\n    },\n", $1, $2, $3, $5*1000, $6/1000;
+    printf "      {\n          // %s\n          .src = %d,\n          .dst = %d,\n          .capacity_bps = %d,\n          .delay_ms = %f,\n      },\n", $1, $2, $3, $5*1000, $6/1000;
 }
 
 END {
-    print "  };\n  return TestTopology{nodes, links};\n}\n\n}  // namespace routing_algos";
+    printf "  };\n  return TestTopology{nodes, links};\n}\n\n}  // namespace\n\nTestTopology %s() { return DedupLinks(Raw%s()); }\n\n}  // namespace routing_algos\n", func_name, func_name;
 }

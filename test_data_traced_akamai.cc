@@ -2,7 +2,9 @@
 
 namespace routing_algos {
 
-TestTopology TracedAkamaiNetwork() {
+namespace {
+
+TestTopology RawTracedAkamaiNetwork() {
   std::vector<Node> nodes{
       {
           .name = "node_0",
@@ -807,5 +809,9 @@ TestTopology TracedAkamaiNetwork() {
   };
   return TestTopology{nodes, links};
 }
+
+}  // namespace
+
+TestTopology TracedAkamaiNetwork() { return DedupLinks(RawTracedAkamaiNetwork()); }
 
 }  // namespace routing_algos

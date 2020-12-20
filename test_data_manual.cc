@@ -1,3 +1,4 @@
+#include "absl/container/flat_hash_map.h"
 #include "test_data.h"
 
 namespace routing_algos {
@@ -169,6 +170,25 @@ TestTopology FourNodeNetwork() {
   };
 
   return {nodes, links};
+}
+
+TestTopology DedupLinks(TestTopology input) {
+  TestTopology combined;
+  combined.nodes = input.nodes;
+
+  absl::flat_hash_map<std::pair<NodeId, NodeId>, LinkId> added;
+  for (Link l : combined.links) {
+    if (auto it = added.find({l.src, l.dst}); it != added.end()) {
+      Link& existing = combined.links[it->second];
+      existing.capacity_bps += l.capacity_bps;
+      existing.delay_ms = std::max(existing.delay_ms, l.delay_ms);
+    }
+    LinkId id = combined.links.size();
+    combined.links.push_back(l);
+    added[{l.src, l.dst}] = id;
+  }
+
+  return combined;
 }
 
 }  // namespace routing_algos
