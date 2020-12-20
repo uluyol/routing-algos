@@ -19,7 +19,7 @@ struct Node {
   bool transit_only = false;
 };
 
-using NodeId = uint32_t;
+using NodeId = int32_t;
 
 struct Link {
   NodeId src = 0;
@@ -31,7 +31,7 @@ struct Link {
 bool operator==(const Link& lhs, const Link& rhs);
 std::ostream& operator<<(std::ostream& os, const Link& link);
 
-using LinkId = uint32_t;
+using LinkId = int32_t;
 
 using Path = std::vector<LinkId>;
 using PathSplit = absl::btree_map<Path, double>;
