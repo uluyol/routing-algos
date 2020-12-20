@@ -7,6 +7,11 @@ namespace routing_algos {
 namespace {
 
 TEST(SPFPathProviderTest, Triangle) {
+  std::vector<Node> nodes{
+      {.name = "A"},
+      {.name = "B"},
+      {.name = "C"},
+  };
   std::vector<Link> links{
       {
           .src = 0,
@@ -28,7 +33,7 @@ TEST(SPFPathProviderTest, Triangle) {
       },
   };
 
-  SPFPathProvider path_provider(links);
+  SPFPathProvider path_provider(nodes, links);
   EXPECT_THAT(path_provider.NextBestPath(FG{0, 1}, {}),
               testing::ElementsAre(0));
   EXPECT_THAT(path_provider.NextBestPath(FG{0, 2}, {}),
@@ -43,6 +48,11 @@ TEST(SPFPathProviderTest, Triangle) {
 }
 
 TEST(SPFPathProviderTest, TriangleWeighted) {
+  std::vector<Node> nodes{
+      {.name = "A"},
+      {.name = "B"},
+      {.name = "C"},
+  };
   std::vector<Link> links{
       {
           .src = 0,
@@ -64,7 +74,7 @@ TEST(SPFPathProviderTest, TriangleWeighted) {
       },
   };
 
-  SPFPathProvider path_provider(links);
+  SPFPathProvider path_provider(nodes, links);
   EXPECT_THAT(path_provider.NextBestPath(FG{0, 1}, {}),
               testing::ElementsAre(0));
   EXPECT_THAT(path_provider.NextBestPath(FG{0, 2}, {}),
@@ -79,6 +89,12 @@ TEST(SPFPathProviderTest, TriangleWeighted) {
 }
 
 TEST(SPFPathProviderTest, Diamond) {
+  std::vector<Node> nodes{
+      {.name = "A"},
+      {.name = "B"},
+      {.name = "C"},
+      {.name = "D"},
+  };
   std::vector<Link> links{
       {
           .src = 0,
@@ -106,7 +122,7 @@ TEST(SPFPathProviderTest, Diamond) {
       },
   };
 
-  SPFPathProvider path_provider(links);
+  SPFPathProvider path_provider(nodes, links);
   EXPECT_THAT(
       path_provider.NextBestPath(FG{0, 3}, {}),
       testing::AnyOf(testing::ElementsAre(0, 2), testing::ElementsAre(1, 3)));

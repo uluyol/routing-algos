@@ -54,26 +54,36 @@ class MiniFuzzerState {
 
 void FuzzB4(MiniFuzzerState &state) {
   // This set of networks should not change.
-  static std::vector<TestTopology> test_topologies = {
-      LinearNetwork(),       TriangleNetwork(),  FourNodeNetwork(),
-      TracedAkamaiNetwork(), TracedAWSNetwork(), TracedCloudflareNetwork(),
-      TracedB4Network(),
+  static std::vector<std::pair<std::string, TestTopology>> test_topologies = {
+      {"linear", LinearNetwork()},
+      {"triangle", TriangleNetwork()},
+      {"four-node", FourNodeNetwork()},
+      {"tr-akamai", TracedAkamaiNetwork()},
+      {"tr-aws", TracedAWSNetwork()},
+      {"tr-cloudflare", TracedCloudflareNetwork()},
+      {"tr-b4", TracedB4Network()},
   };
 
-  const size_t topology_idx = state.Int<size_t>(0, test_topologies.size());
+  const size_t topology_idx = state.Int<size_t>(0, test_topologies.size() - 1);
 
-  TestTopology topology = test_topologies[topology_idx];
+  TestTopology topology;
+  std::string topology_name;
+  std::tie(topology_name, topology) = test_topologies[topology_idx];
+
+  LOG(INFO) << "topology: " << topology_name;
 
   for (Link &l : topology.links) {
     l.capacity_bps = state.Int<int64_t>(0, 100'000'000'000);
     l.delay_ms = state.Double(0.0001, 500);
   }
 
+  bool int_fair_share = state.Int<uint8_t>(0, 2) == 2;
+
   auto flowgroups = EnumerateFGs(topology.nodes);
   PerFG<BandwidthFunc> funcs;
   const uint8_t num_fgs = state.Int<uint8_t>(0, 65);
   while (funcs.size() < num_fgs) {
-    FG fg = flowgroups[state.Int<uint32_t>(0, flowgroups.size())];
+    FG fg = flowgroups[state.Int<uint32_t>(0, flowgroups.size() - 1)];
     if (funcs.contains(fg)) {
       continue;  // already added
     }
@@ -83,7 +93,11 @@ void FuzzB4(MiniFuzzerState &state) {
     double total_fair_share = 0;
     int64_t total_bps = 0;
     while (func.Func().size() < num_steps) {
-      total_fair_share += state.Double(0, 3);
+      if (int_fair_share) {
+        total_fair_share += state.Int<uint8_t>(0, 3);
+      } else {
+        total_fair_share += state.Double(0, 3);
+      }
       total_bps += state.Int<int64_t>(0, 100'000'000'000);
 
       if (total_fair_share == 0 && total_bps > 0) {
@@ -98,7 +112,7 @@ void FuzzB4(MiniFuzzerState &state) {
 
   uint8_t max_paths_per_fg = state.Int<uint8_t>(0, 17);
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {
             .path_budget_per_fg = max_paths_per_fg,
         });
@@ -150,7 +164,7 @@ int main(int argc, char **argv) {
 
   for (int32_t iter = 0; iter < FLAGS_num_iters; iter++) {
     LOG(INFO) << "iteration: " << iter;
-    routing_algos::MiniFuzzerState state(static_cast<uint64_t>(FLAGS_seed) *
+    routing_algos::MiniFuzzerState state(static_cast<uint64_t>(FLAGS_seed) +
                                          static_cast<uint64_t>(iter));
 
     routing_algos::FuzzB4(state);

@@ -60,7 +60,7 @@ MATCHER_P2(PathSplitsNear, expected, margin_bps, "") {
 TEST(B4Test, LinearFair_One_To_Three) {
   const TestTopology topology = LinearNetwork();
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -91,7 +91,7 @@ TEST(B4Test, LinearFair_One_To_Three) {
 TEST(B4Test, LinearFair_AllJustSatisfied) {
   const TestTopology topology = LinearNetwork();
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -122,7 +122,7 @@ TEST(B4Test, LinearFair_AllJustSatisfied) {
 TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
   const TestTopology topology = LinearNetwork();
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -153,7 +153,7 @@ TEST(B4Test, LinearFair_LotsOfSpareCapacity) {
 TEST(B4Test, LinearFair_UnroutableTraffic) {
   const TestTopology topology = LinearNetwork();
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -184,7 +184,7 @@ TEST(B4Test, LinearFair_UnroutableTraffic) {
 TEST(B4Test, LinearFair_ZeroDemandGetsShortestPath) {
   const TestTopology topology = LinearNetwork();
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 100});
 
   BandwidthFunc bw_func_1_2;
@@ -215,7 +215,7 @@ TEST(B4Test, LinearFair_ZeroDemandGetsShortestPath) {
 TEST(B4Test, TriangleLowDemand) {
   const TestTopology topology = TriangleNetwork();
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 2});
 
   BandwidthFunc bw_func;
@@ -244,7 +244,7 @@ TEST(B4Test, TriangleUsesFasterPath) {
   TestTopology topology = TriangleNetwork();
   topology.links[1].delay_ms = 100;
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 1});
 
   BandwidthFunc bw_func;
@@ -274,7 +274,7 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPath) {
   TestTopology topology = TriangleNetwork();
   topology.links[1].delay_ms = 100;
 
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 2});
 
   BandwidthFunc bw_func_1_2;
@@ -308,7 +308,7 @@ TEST(B4Test, TriangleLowPriUsesJustSlowPathWithBudgetOne) {
   topology.links[1].delay_ms = 100;
 
   // Difference from previous test is that path_budget_per_fg is 1
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 1});
 
   BandwidthFunc bw_func_1_2;
@@ -363,7 +363,7 @@ TEST(B4Test, Sigcomm13Example1) {
   expected_residual_links[9].capacity_bps = 5'000'000'000;  // D->C
 
   std::vector<Link> links = topology.links;
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 10});
   PerFG<PathSplit> path_splits = b4.Solve(Sigcomm13Example1Funcs(), links);
 
@@ -406,7 +406,7 @@ TEST(B4Test, Sigcomm13Example2) {
   expected_residual_links[1].capacity_bps = 0;  // A->C
 
   std::vector<Link> links = topology.links;
-  B4 b4(absl::make_unique<SPFPathProvider>(topology.links),
+  B4 b4(absl::make_unique<SPFPathProvider>(topology.nodes, topology.links),
         {.path_budget_per_fg = 10});
   PerFG<PathSplit> path_splits = b4.Solve(Sigcomm13Example2Funcs(), links);
 

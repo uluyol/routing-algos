@@ -11,7 +11,8 @@ namespace routing_algos {
 
 class SPFPathProvider : public PathProvider {
  public:
-  explicit SPFPathProvider(const std::vector<Link>& links);
+  explicit SPFPathProvider(const std::vector<Node>& nodes,
+                           const std::vector<Link>& links);
 
   Path NextBestPath(FG fg,
                     const absl::flat_hash_set<LinkId>& links_to_avoid) const;
