@@ -95,9 +95,9 @@ void FuzzB4(MiniFuzzerState &state) {
     int64_t total_bps = 0;
     while (func.Func().size() < num_steps) {
       if (int_fair_share) {
-        total_fair_share += state.Int<uint8_t>(0, 3);
+        total_fair_share += state.Int<uint8_t>(1, 3);
       } else {
-        total_fair_share += state.Double(0, 3);
+        total_fair_share += state.Double(0.000001, 3);
       }
       total_bps += state.Int<int64_t>(0, 100'000'000'000);
 
