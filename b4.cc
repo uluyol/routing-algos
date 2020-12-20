@@ -247,7 +247,10 @@ double ComputeLinkWaterlevel(const bool is_double_check, const LinkId link_id,
         state.fair_share = waterlevel;
         state.alloc_bps += to_add;
         double_check_alloc_bps += to_add;
-        if (state.steps.front().fair_share <= waterlevel) {
+      }
+      if (state.fair_share == waterlevel) {
+        if (!state.steps.empty() &&
+            state.steps.front().fair_share <= waterlevel) {
           state.steps.remove_prefix(1);
           if (state.steps.empty()) {
             // Current FG is satisfied, remove from active list.
@@ -471,13 +474,22 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
 
     state->current_path =
         path_provider_->NextBestPath(state->fg, solver.links_to_avoid);
-    if (kDebugB4) {
-      LOG(INFO) << "B4: added path [" << absl::StrJoin(state->current_path, " ")
-                << "] for " << p.first;
-    }
+    if (state->current_path.empty()) {
+      if (kDebugB4) {
+        LOG(INFO) << "B4: no path for " << p.first;
+      }
+      // Set demand to zero so we don't try to allocate more for this FG
+      state->active_steps = state->active_steps.subspan(0, 0);
+    } else {
+      if (kDebugB4) {
+        LOG(INFO) << "B4: added path ["
+                  << absl::StrJoin(state->current_path, " ") << "] for "
+                  << p.first;
+      }
 
-    for (LinkId link_id : state->current_path) {
-      solver.link_problems[link_id].Add(state);
+      for (LinkId link_id : state->current_path) {
+        solver.link_problems[link_id].Add(state);
+      }
     }
   }
 

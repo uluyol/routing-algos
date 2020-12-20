@@ -87,3 +87,15 @@ cc_library(
     hdrs = ["test_data.h"],
     deps = [":types"],
 )
+
+cc_test(
+    name = "b4_rand_test",
+    srcs = ["b4_rand_test.cc"],
+    deps = [
+        ":b4",
+        ":spf_path_provider",
+        ":test_data",
+        "@com_google_absl//absl/debugging:failure_signal_handler",
+        "@com_google_absl//absl/debugging:symbolize",
+    ],
+)
