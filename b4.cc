@@ -321,8 +321,19 @@ void FreezeLink(const double fair_share, const LinkId bottleneck_link_id,
         ABSL_ASSERT(state->alloc_bps >= 0);
         ABSL_ASSERT(cur_step.bps_per_share >= 0);
         ABSL_ASSERT(cur_step.fair_share - state->fair_share >= 0);
+        double old_alloc_bps = state->alloc_bps;
         state->alloc_bps +=
             cur_step.bps_per_share * (cur_step.fair_share - state->fair_share);
+        if (state->alloc_bps < 0) {
+          LOG(FATAL) << absl::StreamFormat(
+              "alloc_bps went negative: old: %f new: %f toadd: %f "
+              "bps_per_share: %f fair-share-diff: %f",
+              old_alloc_bps, state->alloc_bps,
+              cur_step.bps_per_share *
+                  (cur_step.fair_share - state->fair_share),
+              cur_step.bps_per_share,
+              (cur_step.fair_share - state->fair_share));
+        }
         CHECK_NEAR(state->alloc_bps, cur_step.bps, 10);
         state->fair_share = cur_step.fair_share;
 
@@ -378,7 +389,7 @@ bool AllDemandsSatisfied(const B4SolverState& s) {
 void BandwidthFunc::Clear() { func_.clear(); }
 
 void BandwidthFunc::Push(double fair_share, int64_t bps) {
-  ABSL_ASSERT(fair_share >= 0);
+  ABSL_ASSERT(fair_share > 0);
   ABSL_ASSERT(bps >= 0);
 
   if (fair_share == 0) {
@@ -391,10 +402,10 @@ void BandwidthFunc::Push(double fair_share, int64_t bps) {
     last_bps = func_.back().bps;
     last_fair_share = func_.back().fair_share;
 
-    if (kDebugB4) {
-      CHECK(last_bps <= bps && last_fair_share <= fair_share);
-    }
+    ABSL_ASSERT(fair_share > last_fair_share);
+    ABSL_ASSERT(bps >= last_bps);
   }
+
   func_.push_back({
       .fair_share = fair_share,
       .bps = bps,
