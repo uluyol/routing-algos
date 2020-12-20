@@ -104,6 +104,7 @@ LinkProblem::LinkProblem(LinkId link_id, int64_t capacity_bps)
     : link_id_(link_id), capacity_bps_(capacity_bps), is_bottleneck_(false) {}
 
 void LinkProblem::Add(FGState* state) {
+  ABSL_ASSERT(state != nullptr);
   ABSL_ASSERT(!is_bottleneck_);
   cached_fair_share_.reset();
   fg_states_.insert({state->fg, state});
@@ -498,6 +499,8 @@ PerFG<PathSplit> B4::Solve(const PerFG<BandwidthFunc>& bandwidth_funcs,
       }
 
       for (LinkId link_id : state->current_path) {
+        ABSL_ASSERT(link_id >= 0);
+        ABSL_ASSERT(link_id < solver.link_problems.size());
         solver.link_problems[link_id].Add(state);
       }
     }
