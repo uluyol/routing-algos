@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -101,7 +101,20 @@ cc_test(
         ":b4",
         ":spf_path_provider",
         ":test_data",
+        "@com_github_gflags_gflags//:gflags",
         "@com_google_absl//absl/debugging:failure_signal_handler",
         "@com_google_absl//absl/debugging:symbolize",
+    ],
+)
+
+cc_binary(
+    name = "b4_benchmark",
+    srcs = ["b4_benchmark.cc"],
+    deps = [
+        ":b4",
+        "@com_github_gflags_gflags//:gflags",
+        "@com_google_absl//absl/debugging:failure_signal_handler",
+        "@com_google_absl//absl/debugging:symbolize",
+        "@com_google_benchmark//:benchmark_main",
     ],
 )

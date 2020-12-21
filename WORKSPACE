@@ -26,3 +26,9 @@ http_archive(
     strip_prefix = "glog-c8f8135a5720aee7de8328b42e4c43f8aa2e60aa",
     urls = ["https://github.com/google/glog/archive/c8f8135a5720aee7de8328b42e4c43f8aa2e60aa.zip"],
 )
+
+http_archive(
+    name = "com_google_benchmark",
+    strip_prefix = "benchmark-bf585a2789e30585b4e3ce6baf11ef2750b54677",
+    urls = ["https://github.com/google/benchmark/archive/bf585a2789e30585b4e3ce6baf11ef2750b54677.zip"],
+)
