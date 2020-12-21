@@ -112,6 +112,7 @@ cc_binary(
     srcs = ["b4_benchmark.cc"],
     deps = [
         ":b4",
+        "//alg:max_min_fairness",
         "@com_github_gflags_gflags//:gflags",
         "@com_google_absl//absl/debugging:failure_signal_handler",
         "@com_google_absl//absl/debugging:symbolize",
