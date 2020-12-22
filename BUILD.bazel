@@ -108,8 +108,8 @@ cc_test(
 )
 
 cc_binary(
-    name = "b4_benchmark",
-    srcs = ["b4_benchmark.cc"],
+    name = "b4_bench",
+    srcs = ["b4_bench.cc"],
     deps = [
         ":b4",
         "//alg:max_min_fairness",
