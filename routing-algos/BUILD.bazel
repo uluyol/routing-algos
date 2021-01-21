@@ -1,0 +1,121 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "types",
+    srcs = ["types.cc"],
+    hdrs = ["types.h"],
+    deps = [
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "conversion",
+    srcs = ["conversion.cc"],
+    hdrs = ["conversion.h"],
+    deps = [
+        ":types",
+    ],
+)
+
+cc_library(
+    name = "path-provider",
+    hdrs = ["path-provider.h"],
+    deps = [
+        ":types",
+        "@com_google_absl//absl/container:flat_hash_set",
+    ],
+)
+
+cc_library(
+    name = "b4",
+    srcs = ["b4.cc"],
+    hdrs = ["b4.h"],
+    deps = [
+        ":path-provider",
+        ":types",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@glog",
+    ],
+)
+
+cc_library(
+    name = "spf-path-provider",
+    srcs = ["spf-path-provider.cc"],
+    hdrs = ["spf-path-provider.h"],
+    deps = [
+        ":path-provider",
+        "//routing-algos/third_party/ncode-common",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
+        "@glog",
+    ],
+)
+
+cc_test(
+    name = "spf-path-provider-test",
+    srcs = ["spf-path-provider-test.cc"],
+    deps = [
+        ":spf-path-provider",
+        "@gtest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "b4-test",
+    srcs = ["b4-test.cc"],
+    deps = [
+        ":b4",
+        ":spf-path-provider",
+        ":test-data",
+        "@gtest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "conversion-test",
+    srcs = ["conversion-test.cc"],
+    deps = [
+        ":conversion",
+        "@gtest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "test-data",
+    srcs = glob(["test-data-*.cc"]),
+    hdrs = ["test-data.h"],
+    deps = [
+        ":types",
+        "@com_google_absl//absl/container:flat_hash_map",
+    ],
+)
+
+cc_test(
+    name = "b4-rand-test",
+    srcs = ["b4-rand-test.cc"],
+    deps = [
+        ":b4",
+        ":spf-path-provider",
+        ":test-data",
+        "@com_github_gflags_gflags//:gflags",
+        "@com_google_absl//absl/debugging:failure_signal_handler",
+        "@com_google_absl//absl/debugging:symbolize",
+    ],
+)
+
+cc_binary(
+    name = "b4-bench",
+    srcs = ["b4-bench.cc"],
+    deps = [
+        ":b4",
+        "//routing-algos/alg:max-min-fairness",
+        "@com_github_gflags_gflags//:gflags",
+        "@com_google_absl//absl/debugging:failure_signal_handler",
+        "@com_google_absl//absl/debugging:symbolize",
+        "@com_google_benchmark//:benchmark_main",
+    ],
+)
